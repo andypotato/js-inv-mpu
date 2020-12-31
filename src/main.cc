@@ -8,7 +8,6 @@ float ypr[3];
 float gyro[3];
 float accel[3];
 float compass[3];
-float temp;
 
 bool run;
 
@@ -25,9 +24,9 @@ uint8_t GetYawPitchRoll(float *data, Quaternion *q, VectorFloat *gravity)
     // yaw: (about Z axis)
     data[0] = atan2(2*q -> x*q -> y - 2*q -> w*q -> z, 2*q -> w*q -> w + 2*q -> x*q -> x - 1);
     // pitch: (nose up/down, about Y axis)
-    data[1] = atan(gravity -> x / sqrt(gravity -> y*gravity -> y + gravity -> z*gravity -> z));
+    data[1] = 0;
     // roll: (tilt left/right, about X axis)
-    data[2] = atan(gravity -> y / sqrt(gravity -> x*gravity -> x + gravity -> z*gravity -> z));
+    data[2] = 0;
     return 0;
 }
 
@@ -121,7 +120,6 @@ void readMpu(const CallbackInfo& info)
     uint8_t fifoCount;
     int16_t g[3];
     int16_t a[3];
-    int16_t c[3];
     int32_t _q[4];
     int32_t t;
     Quaternion q;
@@ -129,21 +127,22 @@ void readMpu(const CallbackInfo& info)
 
     while(run)
     {
-        while (dmp_read_fifo(g, a, _q, &sensors, &fifoCount) != 0) usleep(1e3);
+        while (dmp_read_fifo(g, a, _q, &sensors, &fifoCount) != 0) {
+            usleep(1e3);
+        }
         q = _q;
 
         GetGravity(&gravity, &q);
         GetYawPitchRoll(ypr, &q, &gravity);
 
-        mpu_get_temperature(&t);
-        temp=(float)t/65536L;
+        // scaling for degrees output
+        for(int i = 0; i < 3; i++) {
+            ypr[i] *= 180/M_PI;
+        }
 
-        mpu_get_compass_reg(c);
-
-        //scaling for degrees output
-        for (int i=0;i<3;i++) ypr[i]*=180/M_PI;
         //unwrap yaw when it reaches 180
         ypr[0] = (ypr[0] < -180 ? ypr[0]+360 : (ypr[0] > 180 ? ypr[0] - 360 : ypr[0]));
+
         //change sign of Pitch, MPU is attached upside down
         ypr[1]*=-1.0;
 
@@ -151,12 +150,15 @@ void readMpu(const CallbackInfo& info)
         //swapped to match Yaw,Pitch,Roll
         for (int i=0;i<3;i++)
         {
-            gyro[i]    = (float)(g[3-i-1])/131.0;
-            accel[i]   = (float)(a[3-i-1])/16384.0;
-            compass[i] = (float)(c[3-i-1]);
+            gyro[i]  = (float)(g[3-i-1])/131.0;
+            accel[i] = (float)(a[3-i-1])/16384.0;
         }
 
-        callback.Call(env.Global(), { loadInArray(env, accel), loadInArray(env, gyro), loadInArray(env, compass), loadInArray(env, ypr), Number::New(env, temp) });
+        callback.Call(env.Global(), {
+            loadInArray(env, accel),
+            loadInArray(env, gyro),
+            loadInArray(env, ypr)
+        });
     }
 }
 
